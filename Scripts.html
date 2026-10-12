@@ -1,0 +1,489 @@
+<script>
+/**
+ * Frontend Logic E-Tamu PUPR (Google Apps Script Web App Client)
+ */
+document.addEventListener('DOMContentLoaded', function() {
+  
+  // 1. Logika Halaman Pendaftaran Tamu (Index.html)
+  var form = document.getElementById('formPendaftaran');
+  if (form) {
+    initGuestForm();
+  }
+
+  // 2. Logika Halaman Login Admin (Login.html)
+  var loginForm = document.getElementById('formLogin');
+  if (loginForm) {
+    initLoginForm();
+  }
+
+  // 3. Logika Halaman Dashboard Admin (Admin.html)
+  var tableBody = document.getElementById('tableBodyTamu');
+  if (tableBody) {
+    initAdminDashboard();
+  }
+});
+
+/**
+ * --- FORM TAMU ---
+ */
+function initGuestForm() {
+  var checkPengaduan = document.getElementById('checkPengaduan');
+  var boxUraian = document.getElementById('boxUraianPengaduan');
+  var txtUraian = document.getElementById('uraianPengaduan');
+  var selectTujuan = document.getElementById('tujuanKunjungan');
+  var boxTujuanLainnya = document.getElementById('boxTujuanLainnya');
+  var txtTujuanDetail = document.getElementById('tujuanDetail');
+  var btnReset = document.getElementById('btnReset');
+  var form = document.getElementById('formPendaftaran');
+  var btnKirim = document.getElementById('btnKirim');
+  var spinner = document.getElementById('spinnerSubmit');
+  var modal = document.getElementById('modalKonfirmasi');
+
+  // Trigger Checkbox Pengaduan
+  checkPengaduan.addEventListener('change', function() {
+    if (this.checked) {
+      boxUraian.classList.remove('hidden-field');
+      txtUraian.focus();
+    } else {
+      boxUraian.classList.add('hidden-field');
+      txtUraian.value = ''; // Kosongkan agar tidak terkirim tidak sengaja
+      clearFieldError('groupPengaduan', 'errPengaduan');
+    }
+  });
+
+  // Trigger Tujuan Lainnya
+  selectTujuan.addEventListener('change', function() {
+    if (this.value === 'Lainnya') {
+      boxTujuanLainnya.classList.remove('hidden-field');
+      txtTujuanDetail.focus();
+    } else {
+      boxTujuanLainnya.classList.add('hidden-field');
+      txtTujuanDetail.value = '';
+    }
+  });
+
+  // Reset Button
+  btnReset.addEventListener('click', function() {
+    if (confirm('Apakah Anda yakin ingin mengosongkan seluruh formulir?')) {
+      form.reset();
+      boxUraian.classList.add('hidden-field');
+      boxTujuanLainnya.classList.add('hidden-field');
+      clearAllValidationErrors();
+    }
+  });
+
+  // Submit Handler
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    clearAllValidationErrors();
+
+    var isValid = true;
+    var namaVal = document.getElementById('namaLengkap').value.trim();
+    if (!namaVal || namaVal.length < 3) {
+      showError('namaLengkap', 'errNama', 'Nama lengkap wajib diisi minimal 3 karakter.');
+      isValid = false;
+    }
+
+    var genderChecked = document.querySelector('input[name="jenisKelamin"]:checked');
+    if (!genderChecked) {
+      showError('genderLaki', 'errGender', 'Silakan pilih jenis kelamin.');
+      isValid = false;
+    }
+
+    var usiaVal = parseInt(document.getElementById('usia').value, 10);
+    if (isNaN(usiaVal) || usiaVal < 12 || usiaVal > 120) {
+      showError('usia', 'errUsia', 'Masukkan usia yang valid (12 - 120 tahun).');
+      isValid = false;
+    }
+
+    var alamatVal = document.getElementById('alamat').value.trim();
+    if (!alamatVal || alamatVal.length < 5) {
+      showError('alamat', 'errAlamat', 'Alamat lengkap wajib diisi minimal 5 karakter.');
+      isValid = false;
+    }
+
+    var hpVal = document.getElementById('nomorHp').value.replace(/\s+/g, '').trim();
+    if (!/^(08|\+628|628)[0-9]{8,12}$/.test(hpVal)) {
+      showError('nomorHp', 'errHp', 'Format nomor HP tidak valid (gunakan awalan 08... dengan 10-14 digit).');
+      isValid = false;
+    }
+
+    var tujuanVal = selectTujuan.value;
+    if (!tujuanVal) {
+      showError('tujuanKunjungan', 'errTujuan', 'Silakan pilih tujuan kunjungan.');
+      isValid = false;
+    }
+
+    var tujuanDetailVal = txtTujuanDetail.value.trim();
+    if (tujuanVal === 'Lainnya' && !tujuanDetailVal) {
+      showError('tujuanDetail', 'errTujuanDetail', 'Tujuan kunjungan spesifik wajib diisi.');
+      isValid = false;
+    }
+
+    var hasComplaint = checkPengaduan.checked;
+    var uraianVal = txtUraian.value.trim();
+    if (hasComplaint && (!uraianVal || uraianVal.length < 5)) {
+      showError('uraianPengaduan', 'errPengaduan', 'Uraian pengaduan wajib diisi ketika dicentang (minimal 5 karakter).');
+      isValid = false;
+    }
+
+    if (!isValid) {
+      return;
+    }
+
+    // Siapkan Payload
+    var payload = {
+      namaLengkap: namaVal,
+      jenisKelamin: genderChecked ? genderChecked.value : '',
+      usia: usiaVal,
+      alamat: alamatVal,
+      nomorHp: hpVal,
+      tujuanKunjungan: tujuanVal,
+      tujuanDetail: tujuanDetailVal,
+      hasPengaduan: hasComplaint,
+      uraianPengaduan: hasComplaint ? uraianVal : ''
+    };
+
+    // Cegah Double Submit & Loading UI
+    btnKirim.disabled = true;
+    spinner.classList.remove('hidden');
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btnKirim.disabled = false;
+          spinner.classList.add('hidden');
+          if (res && res.success) {
+            // Tampilkan Modal Konfirmasi
+            document.getElementById('confId').innerText = res.data.id;
+            document.getElementById('confNama').innerText = res.data.namaLengkap;
+            document.getElementById('confTujuan').innerText = res.data.tujuanKunjungan;
+            document.getElementById('confWaktu').innerText = res.data.timestamp;
+            modal.classList.remove('hidden');
+            form.reset();
+            boxUraian.classList.add('hidden-field');
+            boxTujuanLainnya.classList.add('hidden-field');
+          } else {
+            alert(res.message || 'Pendaftaran belum berhasil disimpan. Silakan coba kembali.');
+          }
+        })
+        .withFailureHandler(function(err) {
+          btnKirim.disabled = false;
+          spinner.classList.add('hidden');
+          alert('Pendaftaran belum berhasil disimpan. Terjadi kesalahan server: ' + err.message);
+        })
+        .submitGuestRegistration(payload);
+    } else {
+      // Local preview fallback
+      setTimeout(function() {
+        btnKirim.disabled = false;
+        spinner.classList.add('hidden');
+        alert('Mode Pratinjau Lokal: Kirim pendaftaran via Web App aktif.');
+      }, 600);
+    }
+  });
+
+  // Modal Actions
+  document.getElementById('btnDaftarBaru').addEventListener('click', function() {
+    modal.classList.add('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  document.getElementById('btnTutupModal').addEventListener('click', function() {
+    modal.classList.add('hidden');
+  });
+}
+
+function showError(inputId, errId, msg) {
+  var el = document.getElementById(inputId);
+  if (el) el.classList.add('is-invalid');
+  var err = document.getElementById(errId);
+  if (err) {
+    err.innerText = msg;
+    err.style.display = 'block';
+  }
+}
+
+function clearAllValidationErrors() {
+  document.querySelectorAll('.is-invalid').forEach(function(el) {
+    el.classList.remove('is-invalid');
+  });
+  document.querySelectorAll('.invalid-feedback').forEach(function(el) {
+    el.style.display = 'none';
+  });
+}
+
+/**
+ * --- LOGIN ADMIN ---
+ */
+function initLoginForm() {
+  var form = document.getElementById('formLogin');
+  var btnToggle = document.getElementById('btnTogglePass');
+  var passInput = document.getElementById('loginPassword');
+  var eye = document.getElementById('iconEye');
+  var eyeOff = document.getElementById('iconEyeOff');
+  var btnSubmit = document.getElementById('btnLoginSubmit');
+  var spinner = document.getElementById('spinnerLogin');
+  var alertBox = document.getElementById('loginAlert');
+  var alertMsg = document.getElementById('loginAlertMsg');
+
+  btnToggle.addEventListener('click', function() {
+    if (passInput.type === 'password') {
+      passInput.type = 'text';
+      eye.classList.add('hidden');
+      eyeOff.classList.remove('hidden');
+    } else {
+      passInput.type = 'password';
+      eye.classList.remove('hidden');
+      eyeOff.classList.add('hidden');
+    }
+  });
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    alertBox.classList.add('hidden');
+
+    var username = document.getElementById('loginUsername').value.trim();
+    var pass = passInput.value;
+
+    if (!username || !pass) {
+      alertMsg.innerText = 'Username dan password wajib diisi.';
+      alertBox.classList.remove('hidden');
+      return;
+    }
+
+    btnSubmit.disabled = true;
+    spinner.classList.remove('hidden');
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btnSubmit.disabled = false;
+          spinner.classList.add('hidden');
+          if (res && res.success) {
+            sessionStorage.setItem('pupr_admin_token', res.token);
+            window.location.href = '?page=admin';
+          } else {
+            alertMsg.innerText = res.message || 'Username atau password salah.';
+            alertBox.classList.remove('hidden');
+          }
+        })
+        .withFailureHandler(function(err) {
+          btnSubmit.disabled = false;
+          spinner.classList.add('hidden');
+          alertMsg.innerText = 'Kesalahan koneksi: ' + err.message;
+          alertBox.classList.remove('hidden');
+        })
+        .loginAdmin(username, pass);
+    }
+  });
+}
+
+/**
+ * --- DASHBOARD ADMIN ---
+ */
+var allVisits = [];
+var filteredVisits = [];
+var currentPage = 1;
+var pageSize = 10;
+
+function initAdminDashboard() {
+  var token = sessionStorage.getItem('pupr_admin_token');
+  if (!token) {
+    window.location.href = '?page=login';
+    return;
+  }
+
+  loadAdminData(token);
+
+  // Logout
+  document.getElementById('btnAdminLogout').addEventListener('click', function() {
+    if (confirm('Apakah Anda yakin ingin keluar dari dashboard admin?')) {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.logoutAdmin(token);
+      }
+      sessionStorage.removeItem('pupr_admin_token');
+      window.location.href = '?page=login';
+    }
+  });
+
+  // Filter & Search events
+  document.getElementById('adminSearchInput').addEventListener('input', applyFilters);
+  document.getElementById('filterTujuan').addEventListener('change', applyFilters);
+  document.getElementById('filterPengaduan').addEventListener('change', applyFilters);
+  document.getElementById('filterStatus').addEventListener('change', applyFilters);
+
+  document.getElementById('btnRefreshData').addEventListener('click', function() {
+    loadAdminData(token);
+  });
+
+  // Export CSV
+  document.getElementById('btnExportCsv').addEventListener('click', exportToCsv);
+  document.getElementById('btnPrintReport').addEventListener('click', function() {
+    window.print();
+  });
+
+  // Pagination
+  document.getElementById('btnPrevPage').addEventListener('click', function() {
+    if (currentPage > 1) {
+      currentPage--;
+      renderTable();
+    }
+  });
+  document.getElementById('btnNextPage').addEventListener('click', function() {
+    var maxPages = Math.ceil(filteredVisits.length / pageSize) || 1;
+    if (currentPage < maxPages) {
+      currentPage++;
+      renderTable();
+    }
+  });
+}
+
+function loadAdminData(token) {
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        allVisits = data || [];
+        updateStats();
+        applyFilters();
+      })
+      .withFailureHandler(function(err) {
+        alert('Gagal mengambil data dari Google Sheets: ' + err.message);
+        if (err.message.indexOf('Akses ditolak') !== -1) {
+          sessionStorage.removeItem('pupr_admin_token');
+          window.location.href = '?page=login';
+        }
+      })
+      .getAdminVisits(token);
+  }
+}
+
+function updateStats() {
+  var total = allVisits.length;
+  var complaintCount = 0;
+  var pendingCount = 0;
+  var todayCount = 0;
+
+  var todayDateStr = new Date().toLocaleDateString('id-ID');
+
+  allVisits.forEach(function(v) {
+    if (v.adaPengaduan === 'Ada') complaintCount++;
+    if (v.statusKunjungan === 'Menunggu' || v.statusKunjungan === 'Perlu Tindak Lanjut') pendingCount++;
+    if (v.timestamp && v.timestamp.indexOf(todayDateStr) !== -1) todayCount++;
+  });
+
+  document.getElementById('statTotal').innerText = total;
+  document.getElementById('statToday').innerText = todayCount;
+  document.getElementById('statComplaint').innerText = complaintCount;
+  document.getElementById('statPending').innerText = pendingCount;
+}
+
+function applyFilters() {
+  var q = document.getElementById('adminSearchInput').value.toLowerCase().trim();
+  var fTujuan = document.getElementById('filterTujuan').value;
+  var fPengaduan = document.getElementById('filterPengaduan').value;
+  var fStatus = document.getElementById('filterStatus').value;
+
+  filteredVisits = allVisits.filter(function(v) {
+    var matchQ = !q || 
+      (v.namaLengkap && v.namaLengkap.toLowerCase().indexOf(q) !== -1) ||
+      (v.id && v.id.toLowerCase().indexOf(q) !== -1) ||
+      (v.nomorHp && v.nomorHp.indexOf(q) !== -1);
+
+    var matchTujuan = !fTujuan || (v.tujuanKunjungan && v.tujuanKunjungan.indexOf(fTujuan) !== -1);
+    var matchPengaduan = !fPengaduan || v.adaPengaduan === fPengaduan;
+    var matchStatus = !fStatus || v.statusKunjungan === fStatus;
+
+    return matchQ && matchTujuan && matchPengaduan && matchStatus;
+  });
+
+  currentPage = 1;
+  renderTable();
+}
+
+function renderTable() {
+  var tbody = document.getElementById('tableBodyTamu');
+  var emptyState = document.getElementById('emptyStateTamu');
+  tbody.innerHTML = '';
+
+  if (filteredVisits.length === 0) {
+    emptyState.classList.remove('hidden');
+    document.getElementById('paginationInfo').innerText = 'Menampilkan 0 data';
+    return;
+  }
+  emptyState.classList.add('hidden');
+
+  var start = (currentPage - 1) * pageSize;
+  var end = Math.min(start + pageSize, filteredVisits.length);
+  var pageItems = filteredVisits.slice(start, end);
+
+  pageItems.forEach(function(v, idx) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = 
+      '<td>' + (start + idx + 1) + '</td>' +
+      '<td><span class="badge-id">' + escapeHtml(v.id) + '</span></td>' +
+      '<td>' + escapeHtml(v.timestamp) + '</td>' +
+      '<td class="font-semibold">' + escapeHtml(v.namaLengkap) + '</td>' +
+      '<td>' + escapeHtml(v.jenisKelamin === 'Laki-laki' ? 'L' : 'P') + '</td>' +
+      '<td>' + v.usia + '</td>' +
+      '<td>' + escapeHtml(v.nomorHp) + '</td>' +
+      '<td>' + escapeHtml(v.tujuanKunjungan) + '</td>' +
+      '<td><span class="badge ' + (v.adaPengaduan === 'Ada' ? 'badge-ada-pengaduan' : 'badge-tanpa-pengaduan') + '">' + escapeHtml(v.adaPengaduan) + '</span></td>' +
+      '<td><span class="badge ' + getStatusClass(v.statusKunjungan) + '">' + escapeHtml(v.statusKunjungan) + '</span></td>' +
+      '<td><button class="btn btn-secondary btn-sm" onclick="showDetailModal(\'' + v.id + '\')">Detail</button></td>';
+    tbody.appendChild(tr);
+  });
+
+  var maxPages = Math.ceil(filteredVisits.length / pageSize) || 1;
+  document.getElementById('paginationInfo').innerText = 'Menampilkan ' + (start + 1) + ' - ' + end + ' dari ' + filteredVisits.length + ' data';
+  document.getElementById('currentPageBadge').innerText = currentPage + ' / ' + maxPages;
+  document.getElementById('btnPrevPage').disabled = (currentPage === 1);
+  document.getElementById('btnNextPage').disabled = (currentPage >= maxPages);
+}
+
+function getStatusClass(status) {
+  if (status === 'Menunggu') return 'badge-menunggu';
+  if (status === 'Sedang Diproses') return 'badge-proses';
+  if (status === 'Selesai') return 'badge-selesai';
+  return 'badge-tindak-lanjut';
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, function(m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+  });
+}
+
+function exportToCsv() {
+  if (filteredVisits.length === 0) {
+    alert('Tidak ada data untuk diekspor.');
+    return;
+  }
+  var headers = ['No', 'ID Kunjungan', 'Timestamp', 'Nama Lengkap', 'Jenis Kelamin', 'Usia', 'Alamat', 'Nomor Handphone', 'Tujuan', 'Ada Pengaduan', 'Uraian Pengaduan', 'Status'];
+  var rows = filteredVisits.map(function(v, i) {
+    return [
+      i + 1,
+      '"' + (v.id || '') + '"',
+      '"' + (v.timestamp || '') + '"',
+      '"' + (v.namaLengkap || '') + '"',
+      '"' + (v.jenisKelamin || '') + '"',
+      v.usia || '',
+      '"' + (v.alamat || '').replace(/"/g, '""') + '"',
+      '="' + (v.nomorHp || '') + '"',
+      '"' + (v.tujuanKunjungan || '') + '"',
+      '"' + (v.adaPengaduan || '') + '"',
+      '"' + (v.uraianPengaduan || '').replace(/"/g, '""') + '"',
+      '"' + (v.statusKunjungan || '') + '"'
+    ].join(',');
+  });
+
+  var csvContent = 'data:text/csv;charset=utf-8,﻿' + headers.join(',') + '\n' + rows.join('\n');
+  var encodedUri = encodeURI(csvContent);
+  var link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', 'Laporan_ETamu_PUPR_Gorontalo_' + new Date().toISOString().slice(0, 10) + '.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+</script>
